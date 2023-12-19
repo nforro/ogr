@@ -3,6 +3,7 @@
 
 import datetime
 import logging
+from time import sleep
 from typing import Any, Optional, Union
 
 from ogr.abstract import CommitFlag, CommitStatus, PRComment, PRStatus, PullRequest
@@ -191,18 +192,43 @@ class PagurePullRequest(BasePullRequest):
         return PagurePullRequest(raw_pr, project)
 
     @staticmethod
-    def get_files_diff(project: "ogr_pagure.PagureProject", pr_id: int) -> dict:
-        try:
-            return project._call_project_api(
-                "pull-request",
-                str(pr_id),
-                "diffstats",
-                method="GET",
-            )
-        except PagureAPIException as ex:
-            if "No statistics" in ex.pagure_error:
-                return {}
-            raise ex
+    def get_files_diff(
+        project: "ogr_pagure.PagureProject",
+        pr_id: int,
+        retries=0,
+        wait_seconds=3,
+    ) -> dict:
+        """Collect all the changes in the PR and deal with ENOPRSTATS exception.
+        While the PR is changing its status from open to merged
+        exception can be raised by the Pagure service.
+        Wait for a while to see if we can manage to access changes adjusting the
+        retries and wait_seconds parameters.
+
+        """
+        attempt = 1
+        while True:
+            try:
+                return project._call_project_api(
+                    "pull-request",
+                    str(pr_id),
+                    "diffstats",
+                    method="GET",
+                )
+            except PagureAPIException as ex:  # noqa PERF203
+                if "No statistics" in ex.pagure_error:
+                    # this may be a race condition, try once more
+                    logger.error(
+                        f"While retrieving PR diffstats Pagure returned ENOPRSTATS. \n{ex}",
+                    )
+                    if attempt <= retries:
+                        logger.error(
+                            f"Trying again; attempt={attempt} after {wait_seconds}seconds",
+                        )
+                        attempt += 1
+                        sleep(wait_seconds)
+                    else:
+                        raise ex
+                raise ex
 
     @staticmethod
     def get_list(
