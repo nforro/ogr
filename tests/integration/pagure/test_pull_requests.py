@@ -129,3 +129,8 @@ class PullRequests(PagureTests):
     def test_pr_diff_empty_diff(self):
         with pytest.raises(PagureAPIException):
             self.ogr_project.get_pr_files_diff(6)
+
+    def test_pr_diff_retry(self):
+        diff = self.ogr_project.get_pr_files_diff(6, 1)
+        assert isinstance(diff, dict)
+        assert "README.md" in diff
